@@ -1,0 +1,266 @@
+import json
+import re
+from datetime import datetime
+from collections import defaultdict
+import csv
+
+class SecurityLogAnalyzer:
+    """ Security Log Analysis Tool"""
+    
+    def __init__(self, log_file):
+        self.log_file = log_file
+        self.threats_detected = []
+        self.suspicious_ips = defaultdict(int)
+        
+        # Threat detection thresholds
+        self.FAILED_LOGIN_THRESHOLD = 5
+        self.PORT_SCAN_THRESHOLD = 10
+        
+    def simulate_logs(self, num_logs=1000):
+        """Generate 1000+ realistic security logs for analysis"""
+        import random
+        
+        normal_ips = ['192.168.1.100', '192.168.1.101', '192.168.1.102', '10.0.0.50']
+        attack_ips = ['203.0.113.45', '198.51.100.89', '192.0.2.123']
+        usernames = ['admin', 'root', 'user1', 'webadmin', 'guest']
+        
+        logs = []
+        timestamp = datetime.now()
+        
+        # Normal traffic (80% of logs)
+        for i in range(800):
+            ip = random.choice(normal_ips)
+            log = f'{timestamp.isoformat()} | {ip} | 192.168.1.1:80 | SUCCESS | POST /api/login | User: user1'
+            logs.append(log)
+        
+        # Brute force attacks (15% of logs)
+        for i in range(100):
+            ip = random.choice(attack_ips)
+            user = random.choice(usernames)
+            log = f'{timestamp.isoformat()} | {ip} | 192.168.1.1:80 | FAILED | POST /api/login | User: {user}'
+            logs.append(log)
+        
+        # Port scanning reconnaissance (5% of logs)
+        for i in range(100):
+            ip = attack_ips[0]
+            port = 20 + i
+            log = f'{timestamp.isoformat()} | {ip} | 192.168.1.1:{port} | TIMEOUT | TCP_CONNECT | Port scan'
+            logs.append(log)
+        
+        with open(self.log_file, 'w') as f:
+            for log in logs:
+                f.write(log + '\n')
+        
+        print(f"✓ Generated {len(logs)} security log entries for analysis")
+    
+    def parse_logs(self):
+        """Parse security logs using regex pattern matching"""
+        log_pattern = r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+) \| ([0-9.]+) \| ([0-9.:]+) \| ([A-Z]+) \| (.+?) \| (.+)'
+        
+        logs = []
+        with open(self.log_file, 'r') as f:
+            for line in f:
+                match = re.match(log_pattern, line)
+                if match:
+                    log_entry = {
+                        'timestamp': match.group(1),
+                        'source_ip': match.group(2),
+                        'destination': match.group(3),
+                        'status': match.group(4),
+                        'action': match.group(5),
+                        'details': match.group(6)
+                    }
+                    logs.append(log_entry)
+        
+        return logs
+    
+    def detect_brute_force(self, logs):
+        """THREAT #1: Detect brute force login attacks"""
+        failed_attempts = defaultdict(list)
+        
+        for log in logs:
+            if log['status'] == 'FAILED' and 'login' in log['action'].lower():
+                ip = log['source_ip']
+                failed_attempts[ip].append(log['timestamp'])
+        
+        for ip, attempts in failed_attempts.items():
+            if len(attempts) >= self.FAILED_LOGIN_THRESHOLD:
+                threat = {
+                    'type': 'BRUTE_FORCE_ATTACK',
+                    'severity': 'HIGH',
+                    'source_ip': ip,
+                    'failed_attempts': len(attempts),
+                    'description': f'Detected {len(attempts)} failed login attempts from {ip}',
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.threats_detected.append(threat)
+                print(f"🚨 BRUTE FORCE: {ip} - {len(attempts)} failed attempts")
+    
+    def detect_port_scans(self, logs):
+        """THREAT #2: Detect port scanning reconnaissance"""
+        port_attempts = defaultdict(set)
+        
+        for log in logs:
+            if 'port' in log['action'].lower() or log['status'] == 'TIMEOUT':
+                ip = log['source_ip']
+                dest = log['destination']
+                port_attempts[ip].add(dest)
+        
+        for ip, ports in port_attempts.items():
+            if len(ports) >= self.PORT_SCAN_THRESHOLD:
+                threat = {
+                    'type': 'PORT_SCANNING',
+                    'severity': 'HIGH',
+                    'source_ip': ip,
+                    'ports_scanned': len(ports),
+                    'description': f'Detected {len(ports)} port scan attempts from {ip}',
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.threats_detected.append(threat)
+                print(f"🚨 PORT SCAN: {ip} - {len(ports)} ports scanned")
+    
+    def detect_suspicious_ips(self, logs):
+        """THREAT #3: Identify IPs with suspicious failure rates"""
+        ip_stats = defaultdict(lambda: {'total': 0, 'failed': 0})
+        
+        for log in logs:
+            ip = log['source_ip']
+            ip_stats[ip]['total'] += 1
+            if log['status'] == 'FAILED':
+                ip_stats[ip]['failed'] += 1
+        
+        for ip, stats in ip_stats.items():
+            fail_rate = stats['failed'] / stats['total'] if stats['total'] > 0 else 0
+            
+            if fail_rate > 0.4:  # >40% failure rate = suspicious
+                threat = {
+                    'type': 'HIGH_FAILURE_RATE',
+                    'severity': 'MEDIUM',
+                    'source_ip': ip,
+                    'total_requests': stats['total'],
+                    'failed_requests': stats['failed'],
+                    'failure_rate': f'{fail_rate*100:.1f}%',
+                    'description': f'IP {ip} has {fail_rate*100:.1f}% failure rate',
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.threats_detected.append(threat)
+                print(f"⚠️  SUSPICIOUS IP: {ip} - {fail_rate*100:.1f}% failure rate")
+    
+    def calculate_risk_level(self):
+        """Risk scoring algorithm: 1-10 scale based on threat severity"""
+        high_threats = len([t for t in self.threats_detected if t['severity'] == 'HIGH'])
+        medium_threats = len([t for t in self.threats_detected if t['severity'] == 'MEDIUM'])
+        
+        risk_score = (high_threats * 4) + (medium_threats * 1)
+        
+        if risk_score >= 8:
+            return 'CRITICAL (9-10)'
+        elif risk_score >= 5:
+            return 'HIGH (7-8)'
+        elif risk_score >= 2:
+            return 'MEDIUM (5-6)'
+        else:
+            return 'LOW (1-4)'
+    
+    def generate_threat_report(self):
+        """Generate comprehensive threat intelligence report"""
+        report = {
+            'scan_timestamp': datetime.now().isoformat(),
+            'total_threats_detected': len(self.threats_detected),
+            'high_severity': len([t for t in self.threats_detected if t['severity'] == 'HIGH']),
+            'medium_severity': len([t for t in self.threats_detected if t['severity'] == 'MEDIUM']),
+            'risk_level': self.calculate_risk_level(),
+            'threats': self.threats_detected
+        }
+        return report
+    
+    def save_report_json(self, filename='threat_report.json'):
+        """Export report as JSON for SIEM integration"""
+        report = self.generate_threat_report()
+        with open(filename, 'w') as f:
+            json.dump(report, f, indent=2)
+        print(f"✓ JSON report saved to {filename}")
+    
+    def save_report_csv(self, filename='threat_report.csv'):
+        """Export threats as CSV for analyst review in Excel"""
+        if not self.threats_detected:
+            return
+        
+        with open(filename, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.threats_detected[0].keys())
+            writer.writeheader()
+            writer.writerows(self.threats_detected)
+        print(f"✓ CSV report saved to {filename}")
+    
+    def display_dashboard(self):
+        """Display real-time threat detection dashboard"""
+        report = self.generate_threat_report()
+        
+        print("\n" + "="*70)
+        print("SECURITY OPERATIONS CENTER - THREAT DETECTION DASHBOARD")
+        print("="*70)
+        print(f"Scan Time: {report['scan_timestamp']}")
+        print(f"Total Threats Detected: {report['total_threats_detected']}")
+        print(f"  ├─ High Severity: {report['high_severity']}")
+        print(f"  └─ Medium Severity: {report['medium_severity']}")
+        print(f"\nOverall Risk Level: {report['risk_level']}")
+        print("="*70)
+        
+        if self.threats_detected:
+            print("\nTHREAT INTELLIGENCE:\n")
+            for i, threat in enumerate(self.threats_detected, 1):
+                print(f"{i}. [{threat['severity']}] {threat['type']}")
+                print(f"   Source IP: {threat['source_ip']}")
+                print(f"   Details: {threat['description']}")
+                print()
+        else:
+            print("\n✓ No threats detected - Infrastructure appears secure")
+        
+        print("="*70 + "\n")
+    
+    def run_full_analysis(self):
+        """Execute complete threat detection pipeline"""
+        print("\n[1/4] Parsing security logs...")
+        logs = self.parse_logs()
+        print(f"✓ Processed {len(logs)} log entries")
+        
+        print("\n[2/4] Detecting brute force attacks...")
+        self.detect_brute_force(logs)
+        
+        print("\n[3/4] Detecting port scanning...")
+        self.detect_port_scans(logs)
+        
+        print("\n[4/4] Analyzing suspicious IP behavior...")
+        self.detect_suspicious_ips(logs)
+        
+        print("\n[✓] Analysis complete!\n")
+
+
+# MAIN EXECUTION
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("SECURITY LOG ANALYSIS & THREAT DETECTION SYSTEM")
+    print("Processing 1000+ security events for threat intelligence")
+    print("="*70 + "\n")
+    
+    analyzer = SecurityLogAnalyzer("security_logs.txt")
+    
+    # Generate simulated logs
+    print("Generating realistic security logs...")
+    analyzer.simulate_logs(num_logs=1000)
+    
+    # Run threat detection
+    analyzer.run_full_analysis()
+    
+    # Display dashboard
+    analyzer.display_dashboard()
+    
+    # Export reports
+    analyzer.save_report_json('threat_report.json')
+    analyzer.save_report_csv('threat_report.csv')
+    
+    print("✓ Analysis complete!")
+    print(" Reports saved:")
+    print("   - threat_report.json (for SIEM integration)")
+    print("   - threat_report.csv (for analyst review)")
+    print("   - security_logs.txt (source logs)")
